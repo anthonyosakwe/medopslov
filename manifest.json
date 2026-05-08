@@ -1,0 +1,19 @@
+{
+  "name": "MedOps Command",
+  "short_name": "MedOps",
+  "description": "MedOps Command Center \u2014 fatigue & study optimization",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#03050c",
+  "theme_color": "#03050c",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
