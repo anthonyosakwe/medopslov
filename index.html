@@ -143,11 +143,11 @@ input[type=range]{width:100%;accent-color:var(--amber);cursor:pointer;height:3px
 </div>
 
 <div id="tbr">
-  <button class="tb on" onclick="go(0)">● ANALYTICS</button>
-  <button class="tb"    onclick="go(1)">▶ COMMAND</button>
-  <button class="tb"    onclick="go(2)">○ FATIGUE</button>
-  <button class="tb"    onclick="go(3)">∿ OPTIMIZER</button>
-  <button class="tb"    onclick="go(4)">⊕ PROTOCOL</button>
+  <button class="tb on" onclick="go(0)">▶ COMMAND</button>
+  <button class="tb"    onclick="go(1)">∿ OPTIMIZER</button>
+  <button class="tb"    onclick="go(2)">⊕ PROTOCOL</button>
+  <button class="tb"    onclick="go(3)">○ FATIGUE</button>
+  <button class="tb"    onclick="go(4)">● ANALYTICS</button>
   <button class="tb"    onclick="go(5)">◈ SYSTEM</button>
 </div>
 
@@ -158,11 +158,11 @@ input[type=range]{width:100%;accent-color:var(--amber);cursor:pointer;height:3px
 
 <div id="swipewrap">
   <div id="swipetrack">
-    <div class="swipepage" id="p0"></div>
     <div class="swipepage" id="p1"></div>
-    <div class="swipepage" id="p2"></div>
     <div class="swipepage" id="p3"></div>
     <div class="swipepage" id="p4"></div>
+    <div class="swipepage" id="p2"></div>
+    <div class="swipepage" id="p0"></div>
     <div class="swipepage" id="p5"></div>
   </div>
 </div>
@@ -247,7 +247,13 @@ window.addEventListener('load',()=>{
 const NTABS=6;
 let touchX0=0,touchY0=0,dragging=false,dragged=0;
 const track=document.getElementById('swipetrack');
-track.addEventListener('touchstart',e=>{touchX0=e.touches[0].clientX;touchY0=e.touches[0].clientY;dragging=true;dragged=0;},{passive:true});
+track.addEventListener('touchstart',e=>{
+  // Don't initiate swipe when touching interactive elements
+  const tag=e.target.tagName;
+  const isInteractive=tag==='INPUT'||tag==='BUTTON'||tag==='SELECT'||tag==='TEXTAREA'||e.target.closest('input,button,select,textarea,.chip,.bdot,.chk,.tknob,.toggle');
+  if(isInteractive){dragging=false;return;}
+  touchX0=e.touches[0].clientX;touchY0=e.touches[0].clientY;dragging=true;dragged=0;
+},{passive:true});
 track.addEventListener('touchmove',e=>{
   if(!dragging)return;
   const dx=e.touches[0].clientX-touchX0;const dy=e.touches[0].clientY-touchY0;
@@ -300,6 +306,7 @@ function load(){
   try{
     const d=JSON.parse(localStorage.getItem('mo31'));
     if(d){Object.assign(S,d);if(S.blockDur)S.tsec=S.blockDur*60;}
+    S.tab=0; // always start on Command after the page reorder
   }catch{}
 }
 
@@ -313,7 +320,8 @@ function checkRollover(){
   const today=new Date(todayISO()+'T00:00:00');
   const gap=Math.round((today-lastDate)/86400000);
   const f=fatigue();
-  const yRecord={d:dys[lastDate.getDay()],f:Math.round(f),acc:Math.round(100-f*0.35),b:S.cycle,h:S.h2o,sl:S.fi.sleep};
+  const yCompleted=Math.max(0,S.cycle-1);
+  const yRecord={d:dys[lastDate.getDay()],f:Math.round(f),acc:Math.round(100-f*0.35),b:yCompleted,h:S.h2o,sl:S.fi.sleep};
   S.sessions=[...S.sessions.slice(-13),yRecord];
   S.hydLog=[...S.hydLog.slice(-13),S.h2o];
   S.sleepLog=[...S.sleepLog.slice(-13),S.fi.sleep];
@@ -325,22 +333,24 @@ function checkRollover(){
   if(S.smartAdapt){
     const prev=S.blockDur;
     const nb=Math.max(25,Math.min(90,S.blockDur+(f<40?5:f>60?-10:-2)));
-    S.blockDur=nb;S.bHist=[...S.bHist.slice(-13),{t:todayISO().slice(5),b:nb}];
-    S.blockAdaptations++;
-    S.lastBayes={ts:new Date().toISOString(),prev,next:nb,reason:'rollover',sessions:S.sessions.length};
+    if(nb!==prev){
+      S.blockDur=nb;S.bHist=[...S.bHist.slice(-13),{t:todayISO().slice(5),b:nb}];
+      S.blockAdaptations++;
+      S.lastBayes={ts:new Date().toISOString(),prev,next:nb,reason:'rollover',sessions:S.sessions.length,fatigue:Math.round(f)};
+    }
   }
   S.rolloverDate=todayISO();
   S.tsec=S.blockDur*60;
   save();
   showToast('◈ NEW DAY · Bayesian update applied');
-  kc();renderPage(S.tab);hdr();
+  renderAll();hdr();
 }
 function forceRollover(){
   const y=new Date();y.setDate(y.getDate()-1);
   S.lastLog=y.toISOString().slice(0,10);
   checkRollover();
 }
-function dismissBanner(){S.rolloverDate='';save();kc();renderPage(0);}
+function dismissBanner(){S.rolloverDate='';save();kc();renderPage(4);}
 
 // ══════════════════════════════════════════════
 // HELPERS
@@ -374,13 +384,21 @@ function h2oPace(){
   return{target,diff,behind:diff>0};
 }
 function kc(){Object.values(CJ).forEach(c=>{try{c.destroy();}catch{}});CJ={};}
+function kcPage(idx){
+  // Destroy only charts that belong to the given page index
+  // Page mapping: 0=Command(none) 1=Optimizer(by) 2=Protocol(hy) 3=Fatigue(sl) 4=Analytics(f,a,b) 5=System(none)
+  const pageCharts={0:[],1:['by'],2:['hy'],3:['sl'],4:['f','a','b'],5:[]};
+  (pageCharts[idx]||[]).forEach(k=>{if(CJ[k]){try{CJ[k].destroy();}catch{}delete CJ[k];}});
+}
 function chartOpts(extra={}){
   return{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:'#131b2e',borderColor:'#172236',borderWidth:1,titleColor:'#dde4ed',bodyColor:'#7a8fa6',titleFont:{family:"'Share Tech Mono',monospace",size:9},bodyFont:{family:"'Share Tech Mono',monospace",size:9}}},scales:{x:{grid:{color:'rgba(23,34,54,0.8)'},ticks:{color:'#324055',font:{size:8}}},y:{grid:{color:'rgba(23,34,54,0.8)'},ticks:{color:'#324055',font:{size:8}},...extra}}};
 }
+let _toastTimer=null;
 function showToast(msg,dur=3000){
   const t=document.getElementById('toast');const s=document.getElementById('ttoast');
   if(s)s.textContent=msg;if(t)t.style.display='flex';
-  setTimeout(()=>{if(t)t.style.display='none';},dur);
+  if(_toastTimer)clearTimeout(_toastTimer);
+  _toastTimer=setTimeout(()=>{if(t)t.style.display='none';_toastTimer=null;},dur);
 }
 function dismissToast(){document.getElementById('toast').style.display='none';}
 function hdr(){
@@ -415,13 +433,14 @@ function startStop(){
       }
       const td=document.getElementById('td');if(td)td.textContent=fmt(S.tsec);
       const pl=document.getElementById('pl');if(pl)pl.textContent=(S.phase==='BLOCK'?'● STUDY BLOCK':'◎ BREAK')+' — CYCLE '+S.cycle;
+      const bs=document.getElementById('bsub');if(bs)bs.textContent=S.phase==='BLOCK'?S.blockDur+'-MIN DEEP WORK BLOCK':'STRETCH · HYDRATE · DECOMPRESS';
       hdr();
     },1000);
   }
   const b=document.getElementById('sb');if(b){b.textContent=S.running?'⏸ PAUSE':'▶ START';b.className=S.running?'btn br':'btn bg';}
   hdr();
 }
-function resetTimer(){clearInterval(tiv);tiv=null;S.running=false;S.tsec=S.blockDur*60;S.phase='BLOCK';S.cycle=1;save();renderPage(1);}
+function resetTimer(){clearInterval(tiv);tiv=null;S.running=false;S.tsec=S.blockDur*60;S.phase='BLOCK';S.cycle=1;save();renderPage(0);}
 
 // ══════════════════════════════════════════════
 // ACTIONS
@@ -437,11 +456,22 @@ function updFI(k,v){
   el('dcmd2',e=>{e.textContent=d.cmd;e.style.color=d.hex;});
   el('dreason2',e=>e.textContent=d.reason);
   el('fv_'+k,e=>e.textContent=v+(k==='sleep'||k==='studyHours'?'h':k==='errorRate'||k==='hydration'?'%':''));
-  hdr();
+  hdr();autoBayes();
 }
 function updBD(v){S.blockDur=parseInt(v);if(!S.running)S.tsec=S.blockDur*60;const e=document.getElementById('bdd');if(e)e.textContent=v+' min';const td=document.getElementById('td');if(td&&!S.running)td.textContent=fmt(S.tsec);save();}
-function addH2o(ml){S.h2o+=ml;save();refreshH2o();if(S.h2o>=3500)showToast('✓ DAILY HYDRATION TARGET REACHED');}
-function resetH2o(){S.h2o=0;save();refreshH2o();}
+function syncHydration(){
+  S.fi.hydration=Math.min(100,Math.round((S.h2o/3500)*100));
+  const f=fatigue();const z=zone(f);const d=dec(f);
+  const el=(id,fn)=>{const e=document.getElementById(id);if(e)fn(e);};
+  el('fs',e=>{e.textContent=Math.round(f);e.style.color=z.hex;});
+  el('fz',e=>{e.textContent=z.l;e.style.color=z.hex;});
+  el('fb',e=>{e.style.width=f+'%';e.style.background=z.hex;});
+  el('hyd_derived',e=>e.textContent=S.fi.hydration+'%');
+  el('hf',e=>{e.textContent='F:'+Math.round(f);e.style.color=z.hex;});
+  autoBayes();
+}
+function addH2o(ml){S.h2o+=ml;syncHydration();save();refreshH2o();if(S.h2o>=3500)showToast('✓ DAILY HYDRATION TARGET REACHED');}
+function resetH2o(){S.h2o=0;syncHydration();save();refreshH2o();}
 function refreshH2o(){
   const p=h2oPace();
   const el=(id,fn)=>{const e=document.getElementById(id);if(e)fn(e);};
@@ -459,34 +489,91 @@ function toggleRisk(k){
   const w=document.getElementById('rw');if(w)w.style.display=Object.values(S.risks).some(Boolean)?'block':'none';
 }
 function toggleChk(i){
-  S.checklist[i]=!S.checklist[i];save();
+  if(S.checklist[i])return; // LOCKED — cannot un-check; morning routine logged once per day
+  S.checklist[i]=true;save();
   const box=document.getElementById('cb_'+i);const txt=document.getElementById('ct_'+i);
-  if(box){box.className='chkbox'+(S.checklist[i]?' done':'');box.textContent=S.checklist[i]?'✓':'';}
-  if(txt)txt.className='chktitle'+(S.checklist[i]?' done':'');
+  if(box){box.className='chkbox done';box.textContent='✓';}
+  if(txt)txt.className='chktitle done';
   const ct=S.checklist.filter(Boolean).length;
   const ce=document.getElementById('clct');if(ce)ce.textContent=ct+'/5';
   const cp=document.getElementById('clprog');if(cp)cp.style.width=(ct/5*100)+'%';
+  // Update completed indicator
+  const cdone=document.getElementById('cldone');
+  if(cdone)cdone.style.display=ct===5?'block':'none';
+  // Auto-fire bayes (silent if no fatigue shift) so block recommendation stays current
+  autoBayes();
 }
-function toggleSmartAdapt(){S.smartAdapt=!S.smartAdapt;save();const k=document.getElementById('saknob');const l=document.getElementById('salbl');if(k)k.className='tknob'+(S.smartAdapt?' on':'');if(l){l.textContent=S.smartAdapt?'● ON':'○ OFF';l.style.color=S.smartAdapt?'var(--green)':'var(--t3)';}}
+function toggleSmartAdapt(){
+  S.smartAdapt=!S.smartAdapt;save();
+  const k=document.getElementById('saknob');const l=document.getElementById('salbl');
+  if(k)k.className='tknob'+(S.smartAdapt?' on':'');
+  if(l){l.textContent=S.smartAdapt?'● ON':'○ OFF';l.style.color=S.smartAdapt?'var(--green)':'var(--t3)';}
+  if(S.smartAdapt)autoBayes(); // re-evaluate when re-enabled
+}
 function sendTestPing(){showToast('🔔 TEST PING — notifications active',2500);}
-function resetToday(){S.h2o=0;S.cycle=1;S.checklist=[false,false,false,false,false];S.tsec=S.blockDur*60;S.running=false;clearInterval(tiv);tiv=null;save();showToast('↺ TODAY RESET');go(0);}
-function wipeAll(){if(confirm('WIPE ALL DATA? Cannot be undone.')){localStorage.removeItem('mo31');Object.assign(S,JSON.parse(JSON.stringify(DEF)));S.tsec=S.blockDur*60;save();showToast('⚠ ALL DATA WIPED');go(0);}}
+function resetToday(){S.h2o=0;S.cycle=1;S.checklist=[false,false,false,false,false];S.tsec=S.blockDur*60;S.running=false;clearInterval(tiv);tiv=null;save();showToast('↺ TODAY RESET');go(4);}
+function wipeAll(){if(confirm('WIPE ALL DATA? Cannot be undone.')){localStorage.removeItem('mo31');Object.assign(S,JSON.parse(JSON.stringify(DEF)));S.tsec=S.blockDur*60;save();showToast('⚠ ALL DATA WIPED');go(4);}}
+function renderAll(){kc();for(let i=0;i<6;i++)renderPage(i);}
+function renderAllExcept(skip){
+  for(let i=0;i<6;i++){
+    if(i===skip)continue;
+    kcPage(i);
+    renderPage(i);
+  }
+}
+let bayesDebounce=null;
+function autoBayes(){
+  if(!S.smartAdapt)return;
+  clearTimeout(bayesDebounce);
+  bayesDebounce=setTimeout(()=>{
+    const f=Math.round(fatigue());const prev=S.blockDur;
+    const lastF=S.lastBayes&&S.lastBayes.fatigue!==undefined?S.lastBayes.fatigue:null;
+    if(lastF!==null&&Math.abs(f-lastF)<5)return; // silent: no significant shift
+    const nb=Math.max(25,Math.min(90,S.blockDur+(f<40?5:f>60?-10:-2)));
+    if(nb===prev)return; // silent: already optimal
+    S.blockDur=nb;
+    if(!S.running)S.tsec=nb*60;
+    S.bHist=[...S.bHist.slice(-13),{t:todayISO().slice(5),b:nb}];
+    S.blockAdaptations++;
+    S.lastBayes={ts:new Date().toISOString(),prev,next:nb,reason:'auto',sessions:S.sessions.length,fatigue:f};
+    save();
+    // Refresh every page EXCEPT the one user is on (preserves slider/touch focus)
+    renderAllExcept(S.tab);
+    showToast('⟳ AUTO-BAYES · '+prev+'→'+nb+'min (F='+f+')',1800);
+  },500);
+}
 function runBayes(){
-  const f=fatigue();const prev=S.blockDur;
+  const f=Math.round(fatigue());const prev=S.blockDur;
+  const lastF=S.lastBayes&&S.lastBayes.fatigue!==undefined?S.lastBayes.fatigue:null;
+  if(lastF!==null&&Math.abs(f-lastF)<5){
+    showToast('✓ NO INPUT CHANGE — adjust sliders first (need ≥5pt fatigue shift)',3500);
+    return;
+  }
   const nb=Math.max(25,Math.min(90,S.blockDur+(f<40?5:f>60?-10:-2)));
-  S.blockDur=nb;S.bHist=[...S.bHist.slice(-13),{t:'U'+S.bHist.length,b:nb}];
+  if(nb===prev){
+    showToast('✓ BLOCK ALREADY OPTIMAL AT F='+f);
+    return;
+  }
+  S.blockDur=nb;
+  if(!S.running)S.tsec=nb*60;
+  S.bHist=[...S.bHist.slice(-13),{t:todayISO().slice(5),b:nb}];
   S.blockAdaptations++;
-  S.lastBayes={ts:new Date().toISOString(),prev,next:nb,reason:'manual',sessions:S.sessions.length};
-  save();showToast('⟳ BAYESIAN UPDATE — '+nb+'min');go(3);
+  S.lastBayes={ts:new Date().toISOString(),prev,next:nb,reason:'manual',sessions:S.sessions.length,fatigue:f};
+  save();renderAll();showToast('⟳ BAYESIAN UPDATE — '+prev+'→'+nb+'min (F='+f+')');go(1);
 }
 function logSession(){
   const days=['SUN','MON','TUE','WED','THU','FRI','SAT'];const d=days[new Date().getDay()];
   const f=fatigue();
-  S.sessions=[...S.sessions.slice(-6),{d,f:Math.round(f),acc:Math.round(100-f*0.35),b:S.cycle,h:S.h2o,sl:S.fi.sleep}];
+  const completed=Math.max(0,S.cycle-1);
+  const hasActivity=completed>0||S.h2o>0||S.checklist.some(Boolean);
+  if(!hasActivity){
+    if(!confirm('No activity recorded today:\n  • 0 blocks completed\n  • 0 ml water logged\n  • 0 checklist items\n\nLog session anyway?'))return;
+  }
+  S.sessions=[...S.sessions.slice(-6),{d,f:Math.round(f),acc:Math.round(100-f*0.35),b:completed,h:S.h2o,sl:S.fi.sleep}];
   S.hydLog=[...S.hydLog.slice(-6),S.h2o];S.sleepLog=[...S.sleepLog.slice(-6),S.fi.sleep];
-  S.daysLogged++;S.checklist=[false,false,false,false,false];S.lastLog=todayISO();save();
+  S.daysLogged++;S.lastLog=todayISO();save();
   if(S.cloudSync&&accessToken)saveToDrive();
-  showToast('✓ SESSION LOGGED');go(0);
+  showToast('✓ SESSION LOGGED — '+completed+' blocks');go(4);
 }
 
 // ══════════════════════════════════════════════
@@ -494,7 +581,7 @@ function logSession(){
 // ══════════════════════════════════════════════
 const MOODS=[{lbl:'FRESH',val:10},{lbl:'OK',val:30},{lbl:'TIRED',val:55},{lbl:'DRAINED',val:75},{lbl:'WIPED',val:95}];
 let QL={open:false,sleep:7,mood:30};
-function toggleQlog(){QL.open=!QL.open;QL.sleep=S.fi.sleep;QL.mood=S.fi.subjective;kc();renderPage(0);}
+function toggleQlog(){QL.open=!QL.open;QL.sleep=S.fi.sleep;QL.mood=S.fi.subjective;kc();renderPage(4);}
 function setQlogSleep(v){QL.sleep=parseFloat(v);document.getElementById('qval').textContent=v+'h';}
 function setQlogMood(v){QL.mood=v;document.querySelectorAll('.chip[data-mood]').forEach(c=>c.classList.toggle('active',parseInt(c.dataset.mood)===v));}
 function confirmQlog(){
@@ -502,13 +589,21 @@ function confirmQlog(){
   S.sleepLog=[...S.sleepLog.slice(-6),QL.sleep];
   if(!S.checklist[0]){S.checklist[0]=true;}
   save();
-  // auto-run bayes
-  const f=fatigue();const prev=S.blockDur;
-  const nb=Math.max(25,Math.min(90,S.blockDur+(f<40?5:f>60?-10:-2)));
-  S.blockDur=nb;S.bHist=[...S.bHist.slice(-13),{t:'Q'+S.bHist.length,b:nb}];
-  S.blockAdaptations++;
-  S.lastBayes={ts:new Date().toISOString(),prev,next:nb,reason:'manual',sessions:S.sessions.length};
-  save();QL.open=false;showToast('✓ SLEEP '+QL.sleep+'h LOGGED');kc();renderPage(0);
+  // auto-bayes with proper fatigue lock (≥5pt shift since last update)
+  const f=Math.round(fatigue());const prev=S.blockDur;
+  const lastF=S.lastBayes&&S.lastBayes.fatigue!==undefined?S.lastBayes.fatigue:null;
+  const shiftOK=lastF===null||Math.abs(f-lastF)>=5;
+  if(shiftOK){
+    const nb=Math.max(25,Math.min(90,S.blockDur+(f<40?5:f>60?-10:-2)));
+    if(nb!==prev){
+      S.blockDur=nb;
+      if(!S.running)S.tsec=nb*60;
+      S.bHist=[...S.bHist.slice(-13),{t:todayISO().slice(5),b:nb}];
+      S.blockAdaptations++;
+      S.lastBayes={ts:new Date().toISOString(),prev,next:nb,reason:'manual',sessions:S.sessions.length,fatigue:f};
+    }
+  }
+  save();QL.open=false;showToast('✓ SLEEP '+QL.sleep+'h LOGGED');renderAll();
 }
 
 // ══════════════════════════════════════════════
@@ -547,7 +642,7 @@ const CHK_ITEMS=[{title:"Logged last night's sleep",sub:'Tap QUICK-LOG SLEEP abo
 // ══════════════════════════════════════════════
 // PAGE RENDERERS
 // ══════════════════════════════════════════════
-function renderPage(i){[rA,rC,rF,rO,rP,rS][i]();}
+function renderPage(i){[rC,rO,rP,rF,rA,rS][i]();}
 
 function rA(){
   const todayIdx=new Date().getDay();
@@ -589,7 +684,7 @@ function rA(){
     <div class="streak-box"><div class="streak-row"><div><div class="lbl" style="margin-bottom:2px">STREAK</div><div class="streak-num">${S.streak}<span style="font-size:14px;color:var(--t2);margin-left:6px">DAY</span></div></div><div class="streak-meta">NOW · <span style="color:var(--amber)">${today.toUpperCase()}</span><br>LAST LOG · <span style="color:var(--cyan)">${S.lastLog}</span><br>BEAT · <span class="beatdot"></span></div></div>
     <button class="btn bc bfull" style="margin-top:12px;font-size:10px" onclick="toggleQlog()">☽ QUICK-LOG SLEEP · ${S.fi.sleep}h</button>
     ${qlogHTML}</div>
-    <div class="card ca"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span class="lbl" style="margin-bottom:0">MORNING ROUTINE · ${new Date().toLocaleDateString('en-US',{month:'2-digit',day:'2-digit'})}</span><span style="font-size:9px;color:var(--t3)" id="clct">${ct}/5</span></div><div class="pbar"><div class="pfill" id="clprog" style="width:${ct/5*100}%;background:var(--amber)"></div></div>${CHK_ITEMS.map((item,i)=>`<div class="chk" onclick="toggleChk(${i})"><div class="chkbox${S.checklist[i]?' done':''}" id="cb_${i}">${S.checklist[i]?'✓':''}</div><div class="chktxt"><div class="chktitle${S.checklist[i]?' done':''}" id="ct_${i}">${item.title}</div><div class="chksub">${item.sub}</div></div></div>`).join('')}<div style="display:flex;justify-content:space-between;margin-top:8px;font-size:8.5px;color:var(--t3)"><span>7d avg: ${(displaySessions.reduce((a,x)=>a+(x.acc>85?1:0),0)*0.7).toFixed(1)}/5</span><span>Perfect days: ${displaySessions.filter(x=>x.acc>90).length}/${displaySessions.length}</span></div></div>
+    <div class="card ca"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span class="lbl" style="margin-bottom:0">MORNING ROUTINE · ${new Date().toLocaleDateString('en-US',{month:'2-digit',day:'2-digit'})}</span><span style="font-size:9px;color:var(--t3)" id="clct">${ct}/5</span></div><div class="pbar"><div class="pfill" id="clprog" style="width:${ct/5*100}%;background:var(--amber)"></div></div>${CHK_ITEMS.map((item,i)=>{const done=S.checklist[i];return `<div class="chk" style="${done?'cursor:default;opacity:0.85':''}" onclick="toggleChk(${i})"><div class="chkbox${done?' done':''}" id="cb_${i}">${done?'✓':''}</div><div class="chktxt"><div class="chktitle${done?' done':''}" id="ct_${i}">${item.title}</div><div class="chksub">${done?'✓ Logged — locked for today':item.sub}</div></div></div>`}).join('')}<div id="cldone" style="display:${ct===5?'block':'none'};margin-top:8px;padding:8px 10px;background:rgba(34,211,165,0.10);border:1px solid var(--green);border-radius:5px;font-size:9px;color:var(--green);letter-spacing:1px;text-align:center">✓ MORNING ROUTINE COMPLETE — LOCKED UNTIL TOMORROW</div><div style="display:flex;justify-content:space-between;margin-top:8px;font-size:8.5px;color:var(--t3)"><span>7d avg: ${(displaySessions.reduce((a,x)=>a+(x.acc>85?1:0),0)*0.7).toFixed(1)}/5</span><span>Perfect days: ${displaySessions.filter(x=>x.acc>90).length}/${displaySessions.length}</span></div></div>
     <div class="srow"><div class="sc" style="border-color:var(--amber)"><span class="lbl">AVG FATIGUE</span><span class="big" style="font-size:24px;color:var(--amber)">${avgF}</span><div style="font-size:8px;color:var(--t3);margin-top:3px">${displaySessions.length}d</div></div><div class="sc" style="border-color:var(--cyan)"><span class="lbl">AVG ACCURACY</span><span class="big" style="font-size:24px;color:var(--cyan)">${avgA}%</span><div style="font-size:8px;color:var(--t3);margin-top:3px">${displaySessions.length}d</div></div><div class="sc" style="border-color:var(--green)"><span class="lbl">TOTAL BLOCKS</span><span class="big" style="font-size:24px;color:var(--green)">${totB}</span><div style="font-size:8px;color:var(--t3);margin-top:3px">${displaySessions.length}d</div></div></div>
     <div class="card"><span class="lbl">FATIGUE TREND — ${todayName} (${displaySessions.length}-DAY)</span><div class="cwrap" style="height:110px"><canvas id="cfa"></canvas></div></div>
     <div class="card"><span class="lbl">ACCURACY % — UP TO ${todayName}</span><div class="cwrap" style="height:90px"><canvas id="cac"></canvas></div></div>
@@ -604,8 +699,11 @@ function rA(){
 
 function rC(){
   const f=fatigue();const d=dec(f);const ib=S.phase==='BLOCK';
+  // Detect mismatch between running timer and current blockDur (Bayesian fired mid-block)
+  const expectedTsec=S.blockDur*60;
+  const mismatch=S.running&&ib&&Math.abs(S.tsec-expectedTsec)>5&&S.tsec>expectedTsec;
   document.getElementById('p1').innerHTML=`
-    <div class="cmdbox" style="background:${ib?'rgba(56,189,248,0.08)':'rgba(34,211,165,0.08)'};border-color:${ib?'var(--cyan)':'var(--green)'}"><span class="lbl" id="pl">${ib?'● STUDY BLOCK':'◎ BREAK'} — CYCLE ${S.cycle}</span><div class="big" id="td" style="font-size:56px;letter-spacing:3px;color:${ib?'var(--cyan)':'var(--green)'};font-variant-numeric:tabular-nums">${fmt(S.tsec)}</div><div style="color:var(--t2);font-size:10px;margin-top:6px;letter-spacing:1px">${ib?S.blockDur+'-MIN DEEP WORK BLOCK':'STRETCH · HYDRATE · DECOMPRESS'}</div></div>
+    <div class="cmdbox" style="background:${ib?'rgba(56,189,248,0.08)':'rgba(34,211,165,0.08)'};border-color:${ib?'var(--cyan)':'var(--green)'}"><span class="lbl" id="pl">${ib?'● STUDY BLOCK':'◎ BREAK'} — CYCLE ${S.cycle}</span><div class="big" id="td" style="font-size:56px;letter-spacing:3px;color:${ib?'var(--cyan)':'var(--green)'};font-variant-numeric:tabular-nums">${fmt(S.tsec)}</div><div id="bsub" style="color:var(--t2);font-size:10px;margin-top:6px;letter-spacing:1px">${ib?S.blockDur+'-MIN DEEP WORK BLOCK':'STRETCH · HYDRATE · DECOMPRESS'}</div>${mismatch?`<div style="margin-top:6px;font-size:8.5px;color:var(--purple);letter-spacing:1px">➜ NEXT BLOCK: ${S.blockDur}min (current block continues)</div>`:''}</div>
     <div class="row" style="justify-content:center;gap:10px;margin-bottom:12px"><button class="btn ${S.running?'br':'bg'}" id="sb" style="min-width:110px" onclick="startStop()">${S.running?'⏸ PAUSE':'▶ START'}</button><button class="btn" style="min-width:80px" onclick="resetTimer()">↺ RESET</button></div>
     <div class="card"><span class="lbl">EXECUTION QUEUE</span>${[{cmd:'START_BLOCK',meta:S.blockDur+'min',on:ib&&S.running},{cmd:'BREAK',meta:'5min',on:!ib&&S.running},{cmd:'HYDRATE',meta:'300ml',on:false},{cmd:'SLEEP',meta:'90min (if critical)',on:f>=80}].map(x=>`<div class="li" style="opacity:${x.on?1:0.32}"><span style="color:${x.on?'var(--amber)':'var(--t2)'};font-size:11px">${x.on?'▶ ':'  '}${x.cmd}</span><span style="color:var(--t3);font-size:10px">${x.meta}</span></div>`).join('')}</div>
     <div class="card"><span class="lbl">BLOCK DURATION</span><div class="sh"><span class="sl-lbl">Next / Current Block</span><span class="sv" id="bdd">${S.blockDur} min</span></div><input type="range" min="25" max="90" step="5" value="${S.blockDur}" oninput="updBD(this.value)"><div style="display:flex;justify-content:space-between;margin-top:3px;font-size:8px;color:var(--t3)"><span>25min</span><span>90min</span></div></div>
@@ -614,24 +712,67 @@ function rC(){
 
 function rF(){
   const f=fatigue();const z=zone(f);const d=dec(f);
-  const params=[
-    {k:'sleep',l:'SLEEP HOURS',min:0,max:12,step:0.5,unit:'h',lo:'NONE (0h)',hi:'(12h) OVERSLEPT',hint:'Hours slept last night'},
-    {k:'studyHours',l:'STUDY HOURS',min:0,max:16,step:0.5,unit:'h',lo:'REST (0h)',hi:'(16h) MARATHON',hint:'Hours studied today'},
-    {k:'errorRate',l:'ERROR RATE',min:0,max:100,step:5,unit:'%',lo:'ACCURATE (0%)',hi:'(100%) MISTAKES',hint:'% wrong on recent questions'},
-    {k:'reaction',l:'REACTION DELAY',min:0,max:100,step:5,unit:'',lo:'FAST (0)',hi:'(100) SLUGGISH',hint:'How slow your responses feel'},
-    {k:'subjective',l:'SUBJECTIVE FATIGUE',min:0,max:100,step:5,unit:'',lo:'FRESH (0)',hi:'(100) WIPED',hint:'How tired you feel right now'},
-    {k:'hydration',l:'HYDRATION LEVEL',min:0,max:100,step:5,unit:'%',lo:'DRY (0%)',hi:'(100%) WELL-HYDRATED',hint:'How hydrated you feel'}
-  ];
   const avgSl=(S.sleepLog.reduce((a,x)=>a+x,0)/S.sleepLog.length).toFixed(1);
+  const params=[
+    {k:'sleep',      l:'SLEEP HOURS',       unit:'h',  min:0,  max:12,  step:0.5, hint:'Hours slept last night',        lo:'NONE',     hi:'OVERSLEPT', col:'var(--cyan)'},
+    {k:'studyHours', l:'STUDY HOURS',        unit:'h',  min:0,  max:16,  step:0.5, hint:'Hours studied today',           lo:'REST',     hi:'MARATHON',  col:'var(--green)'},
+    {k:'errorRate',  l:'ERROR RATE',         unit:'%',  min:0,  max:100, step:5,   hint:'% wrong on recent questions',   lo:'ACCURATE', hi:'MISTAKES',  col:'var(--red)'},
+    {k:'reaction',   l:'REACTION DELAY',     unit:'',   min:0,  max:100, step:5,   hint:'How slow your responses feel',  lo:'FAST',     hi:'SLUGGISH',  col:'var(--orange)'},
+    {k:'subjective', l:'SUBJECTIVE FATIGUE', unit:'',   min:0,  max:100, step:5,   hint:'How tired you feel right now',  lo:'FRESH',    hi:'WIPED',     col:'var(--amber)'},
+  ];
+  const paramCards=params.map(p=>`
+    <div style="background:var(--bg3);border:1px solid var(--b1);border-left:3px solid ${p.col};border-radius:7px;padding:13px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px">
+        <span style="font-size:9px;letter-spacing:2px;color:${p.col};font-weight:700">${p.l}</span>
+        <span id="fv_${p.k}" style="font-family:'Orbitron',monospace;font-size:20px;font-weight:900;color:${p.col}">${S.fi[p.k]}${p.unit}</span>
+      </div>
+      <div style="font-size:9px;color:var(--t2);margin-bottom:10px;letter-spacing:0.5px">${p.hint}</div>
+      <input type="range" min="${p.min}" max="${p.max}" step="${p.step}" value="${S.fi[p.k]}"
+        style="accent-color:${p.col}"
+        oninput="updFI('${p.k}',this.value)">
+      <div style="display:flex;justify-content:space-between;margin-top:5px;font-size:8px;color:var(--t3)">
+        <span style="color:var(--green)">← ${p.lo}</span>
+        <span style="color:var(--red)">${p.hi} →</span>
+      </div>
+    </div>`).join('');
+  const hydCard=`
+    <div style="background:var(--cyanlo);border:1px solid var(--cyan);border-left:3px solid var(--cyan);border-radius:7px;padding:13px;margin-bottom:10px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:3px">
+        <span style="font-size:9px;letter-spacing:2px;color:var(--cyan);font-weight:700">HYDRATION LEVEL</span>
+        <span id="hyd_derived" style="font-family:'Orbitron',monospace;font-size:20px;font-weight:900;color:var(--cyan)">${S.fi.hydration}%</span>
+      </div>
+      <div style="font-size:9px;color:var(--t2);margin-bottom:8px">Auto-derived from Protocol water log</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;background:var(--bg2);border-radius:4px;padding:7px 10px">
+        <span style="font-size:9px;color:var(--t2)">☁ ${S.h2o} ml logged today</span>
+        <span style="font-size:9px;color:var(--cyan)">→ log water in Protocol tab</span>
+      </div>
+    </div>`;
   document.getElementById('p2').innerHTML=`
-    <div class="cmdbox" style="background:${z.lo};border-color:${z.hex}"><span class="lbl">FATIGUE INDEX</span><div class="big" id="fs" style="font-size:64px;letter-spacing:2px;color:${z.hex}">${Math.round(f)}</div><div id="fz" style="color:${z.hex};font-size:10px;letter-spacing:3px;margin-top:4px">${z.l}</div><div class="pbar" style="margin-top:10px"><div class="pfill" id="fb" style="width:${f}%;background:${z.hex}"></div></div><div style="display:flex;justify-content:space-between;font-size:7.5px;color:var(--t3)"><span>0·OPTIMAL</span><span>30</span><span>60·ONSET</span><span>80·HIGH</span><span>100·CRIT</span></div></div>
-    <div class="card"><span class="lbl">INPUT PARAMETERS</span>${params.map(p=>`<div class="sr"><div class="sh"><span class="sl-lbl">${p.l}</span><span class="sv" id="fv_${p.k}">${S.fi[p.k]}${p.unit}</span></div><div class="slider-hint">${p.hint}</div><input type="range" min="${p.min}" max="${p.max}" step="${p.step}" value="${S.fi[p.k]}" oninput="updFI('${p.k}',this.value)"><div class="slider-ends"><span>← ${p.lo}</span><span>${p.hi} →</span></div></div>`).join('')}</div>
-    <div class="card"><span class="lbl">FORMULA ENGINE</span><div style="font-size:10px;color:var(--t2);line-height:2.1">F = (0.25 × sleep_deficit)<br>&nbsp;&nbsp;+ (0.20 × study_load)<br>&nbsp;&nbsp;+ (0.20 × error_rate)<br>&nbsp;&nbsp;+ (0.15 × reaction_delay)<br>&nbsp;&nbsp;+ (0.10 × subjective)<br>&nbsp;&nbsp;− (0.10 × hydration)</div></div>
-    <div class="card"><span class="lbl">SLEEP TREND · ${S.sleepLog.length} DAYS</span><div style="display:flex;justify-content:flex-end;margin-bottom:2px;font-size:9px;color:var(--amber)">avg ${avgSl}h</div><div class="cwrap" style="height:90px"><canvas id="csl"></canvas></div></div>
-    <div class="cmdbox" id="dbox2" style="background:${d.hex}18;border-color:${d.hex}"><span class="lbl">DECISION ENGINE OUTPUT</span><div class="big" id="dcmd2" style="font-size:16px;letter-spacing:3px;color:${d.hex}">${d.cmd}</div><div style="color:var(--t2);font-size:10px;margin-top:5px;line-height:1.6" id="dreason2">${d.reason}</div></div>`;
+    <div class="cmdbox" style="background:${z.lo};border-color:${z.hex}">
+      <span class="lbl">FATIGUE INDEX</span>
+      <div class="big" id="fs" style="font-size:64px;letter-spacing:2px;color:${z.hex}">${Math.round(f)}</div>
+      <div id="fz" style="color:${z.hex};font-size:10px;letter-spacing:3px;margin-top:4px">${z.l}</div>
+      <div class="pbar" style="margin-top:10px"><div class="pfill" id="fb" style="width:${f}%;background:${z.hex}"></div></div>
+      <div style="display:flex;justify-content:space-between;font-size:7.5px;color:var(--t3)">
+        <span>0 OPTIMAL</span><span>30</span><span>60 ONSET</span><span>80 HIGH</span><span>100 CRIT</span>
+      </div>
+    </div>
+    <div style="font-size:9px;color:var(--t3);letter-spacing:1px;margin-bottom:8px;padding:0 2px">▸ INPUT PARAMETERS — adjust each to reflect today</div>
+    ${paramCards}
+    ${hydCard}
+    <div class="card"><span class="lbl">SLEEP TREND · ${S.sleepLog.length} DAYS</span>
+      <div style="display:flex;justify-content:flex-end;margin-bottom:2px;font-size:9px;color:var(--amber)">avg ${avgSl}h</div>
+      <div class="cwrap" style="height:90px"><canvas id="csl"></canvas></div>
+    </div>
+    <div class="cmdbox" id="dbox2" style="background:${d.hex}18;border-color:${d.hex}">
+      <span class="lbl">DECISION ENGINE OUTPUT</span>
+      <div class="big" id="dcmd2" style="font-size:16px;letter-spacing:3px;color:${d.hex}">${d.cmd}</div>
+      <div style="color:var(--t2);font-size:10px;margin-top:5px;line-height:1.6" id="dreason2">${d.reason}</div>
+    </div>`;
   const dys=['MON','TUE','WED','THU','FRI','SAT','SUN'].slice(-S.sleepLog.length);
   CJ.sl=new Chart(document.getElementById('csl'),{type:'line',data:{labels:dys,datasets:[{data:S.sleepLog,borderColor:'#22d3a5',backgroundColor:'rgba(34,211,165,0.08)',fill:true,borderWidth:2,pointBackgroundColor:'#22d3a5',pointRadius:3,tension:0.4},{data:Array(S.sleepLog.length).fill(7),borderColor:'rgba(232,160,32,0.4)',borderWidth:1,borderDash:[4,4],fill:false,pointRadius:0}]},options:chartOpts({min:3,max:10})});
 }
+
 
 function rO(){
   const f=fatigue();
@@ -683,7 +824,7 @@ function rP(){
   const dys=['MON','TUE','WED','THU','FRI','SAT','SUN'].slice(-S.hydLog.length);
   CJ.hy=new Chart(document.getElementById('chyd'),{type:'bar',data:{labels:dys,datasets:[{data:S.hydLog.map(x=>+(x/1000).toFixed(1)),backgroundColor:S.hydLog.map(x=>x>=3500?'rgba(34,211,165,0.65)':x>=2000?'rgba(56,189,248,0.55)':'rgba(248,113,113,0.55)'),borderRadius:2},{data:Array(S.hydLog.length).fill(3.5),borderColor:'rgba(232,160,32,0.4)',borderWidth:1,type:'line',pointRadius:0,fill:false}]},options:chartOpts({min:0,max:4.5})});
 }
-function setBStep(i){S.bStep=i;save();kc();renderPage(4);}
+function setBStep(i){S.bStep=i;save();kc();renderPage(2);}
 
 function rS(){
   const f=fatigue();const z=zone(f);
@@ -692,7 +833,7 @@ function rS(){
   document.getElementById('p5').innerHTML=`
     <div class="card cr"><span class="lbl">RED FLAG MONITOR</span>${[{k:'pain',l:'Persistent Pain'},{k:'numbness',l:'Numbness'},{k:'weakness',l:'Weakness'},{k:'stiffness',l:'Severe Stiffness'}].map(({k,l})=>`<div class="li"><span style="font-size:11px;color:${S.risks[k]?'var(--red)':'var(--t2)'}" id="rl_${k}">${l}</span><button class="btn ${S.risks[k]?'br':''}" id="rb_${k}" style="padding:5px 12px;font-size:8.5px" onclick="toggleRisk('${k}')">${S.risks[k]?'● FLAGGED':'○ CLEAR'}</button></div>`).join('')}<div id="rw" style="display:${Object.values(S.risks).some(Boolean)?'block':'none'};margin-top:10px;padding:10px;background:var(--redlo);border-radius:4px;font-size:9.5px;color:var(--red);line-height:1.5">⚠ Flag(s) active. Consult a medical professional if symptoms persist.</div></div>
     <div class="card"><span class="lbl">FAILURE MODE WATCHLIST</span>${fm.map(x=>`<div class="li"><span style="font-size:11px;color:var(--t2)">${x.name}</span><span style="font-size:10px;color:${x.c};letter-spacing:1px">${x.risk}</span></div>`).join('')}</div>
-    <div class="card cg"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span class="lbl" style="margin-bottom:0">SMART ADAPT MODE</span><div class="toggle" onclick="toggleSmartAdapt()"><div class="tknob ${S.smartAdapt?'on':''}" id="saknob"></div><span style="font-size:9px;color:${S.smartAdapt?'var(--green)':'var(--t3)'}" id="salbl">${S.smartAdapt?'● ON':'○ OFF'}</span></div></div><div style="font-size:9.5px;color:var(--t2);line-height:1.7">When ON, the Bayesian model auto-applies its recommended block at the end of every cycle. Works offline.</div><div style="margin-top:8px;font-size:9px;color:var(--green)">▶ Model output → next block: ${S.blockDur}min</div></div>
+    <div class="card cg"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span class="lbl" style="margin-bottom:0">SMART ADAPT MODE</span><div class="toggle" onclick="toggleSmartAdapt()"><div class="tknob ${S.smartAdapt?'on':''}" id="saknob"></div><span style="font-size:9px;color:${S.smartAdapt?'var(--green)':'var(--t3)'}" id="salbl">${S.smartAdapt?'● ON':'○ OFF'}</span></div></div><div style="font-size:9.5px;color:var(--t2);line-height:1.7">When ON: Bayesian auto-applies on input changes (≥5pt fatigue shift) AND at end of cycles. When OFF: only manual button updates.</div><div style="margin-top:8px;font-size:9px;color:var(--green)">▶ Model output → next block: ${S.blockDur}min</div></div>
     <div class="card" style="border-color:var(--b1)"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><span class="lbl" style="margin-bottom:0">NOTIFICATIONS</span><span style="font-size:8.5px;color:${S.notifAllowed?'var(--green)':'var(--t3)'}">● ${S.notifAllowed?'ALLOWED':'OFF'}</span></div><div style="font-size:9.5px;color:var(--t2);line-height:1.7;margin-bottom:10px">Block transitions, critical fatigue, sleep log, hydration shortfalls.</div><button class="btn bfull" onclick="sendTestPing()">SEND TEST PING</button></div>
     <div class="card"><span class="lbl">DATA STORE</span><div style="font-size:10px;color:var(--t2);line-height:2">Days logged: <span style="color:var(--amber)">${S.daysLogged}</span> / 30 max<br>Block adaptations: <span style="color:var(--amber)">${S.blockAdaptations}</span><br>Today: <span style="color:var(--cyan)">${todayISO()}</span> · ${['SUN','MON','TUE','WED','THU','FRI','SAT'][new Date().getDay()]}</div><div class="row" style="margin-top:10px;gap:8px"><button class="btn ba" style="flex:1;font-size:9px" onclick="resetToday()">↺ RESET TODAY</button><button class="btn br" style="flex:1;font-size:9px" onclick="wipeAll()">⚠ WIPE ALL</button></div><button class="btn bp bfull" style="margin-top:8px;font-size:9px" onclick="forceRollover()" title="Simulates midnight — triggers Bayesian day rollover immediately">⏭ SIMULATE NEXT DAY</button></div>
     <div class="card"><span class="lbl">WEEKLY STRUCTURE</span>${['MORNING DEEP WORK','MIDDAY INTEGRATION','AFTERNOON APPLICATION','EVENING REVIEW'].map((x,i)=>`<div class="li"><span style="font-size:9px;color:var(--purple);min-width:18px">${i+1}.</span><span style="font-size:10px;color:var(--t2)">${x}</span></div>`).join('')}<div style="margin-top:8px;font-size:8.5px;color:var(--t3)">6 active days · 1 full recovery day</div></div>
