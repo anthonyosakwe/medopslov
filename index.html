@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#03050c">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="MedOps">
-<title>MedOps Command v5.0</title>
+<title>MedOps Command v3.2</title>
 <link rel="icon" type="image/svg+xml" href="icon.svg">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png">
@@ -621,14 +621,7 @@ function openWeeklyReport(){
   const totB=ss.reduce((a,x)=>a+x.b,0);
   const avgH=Math.round(ss.reduce((a,x)=>a+(x.h||0),0)/ss.length);
   const w=window.open('','_blank');
-  w.document.write(`<!DOCTYPE html><html><head><title>MedOps Weekly Report</title><style>body{font-family:monospace;background:#fff;color:#111;padding:30px;max-width:600px;margin:auto}h1{font-size:18px;border-bottom:2px solid #e8a020;padding-bottom:8px;color:#e8a020}h2{font-size:12px;letter-spacing:2px;color:#666;margin:20px 0 8px}table{width:100%;border-collapse:collapse;font-size:11px}td,th{border:1px solid #ddd;padding:6px 8px;text-align:left}th{background:#f5f5f5}.stat{display:inline-block;background:#f9f9f9;border:1px solid #ddd;border-radius:4px;padding:8px 16px;margin:4px;text-align:center}.sn{font-size:22px;font-weight:bold;color:#e8a020}.sl{font-size:10px;color:#666;display:block}@media print{button{display:none}}</style></head><body><h1>MEDOPS COMMAND — WEEKLY REPORT</h1><p style="font-size:10px;color:#666">${new Date().toDateString()} · v3.2 · ${S.daysLogged} days logged</p><div>${['AVG FATIGUE:'+avgF,'AVG ACCURACY:'+avgA+'%','TOTAL BLOCKS:'+totB,'AVG HYDRATION:'+Math.round(avgH/100)/10+'L'].map(x=>`<span class="stat"><span class="sn">${x.split(':')[1]}</span><span class="sl">${x.split(':')[0]}</span></span>`).join('')}</div><h2>SESSION LOG</h2><table><tr><th>DAY</th><th>FATIGUE</th><th>ACCURACY</th><th>BLOCKS</th><th>HYDRATION</th></tr>${ss.map(x=>`<tr><td>${x.d}</td><td>${x.f}</td><td>${x.acc}%</td><td>${x.b}</td><td>${((x.h||0)/1000).toFixed(1)}L</td></tr>`).join('')}</table><h2>BAYESIAN</h2><p style="font-size:11px">Block: <b>${S.blockDur}min</b> · Streak: <b>${S.streak}d</b> · Adapt: <b>${S.smartAdapt?'ON':'OFF'}</b>${S.lastBayes?` · Last update: ${new Date(S.lastBayes.ts).toLocaleDateString()} (${S.lastBayes.prev}→${S.lastBayes.next}min)`:''}</p><br><button onclick="window.print()">🖨 PRINT / SAVE PDF</button><script>
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('./sw.js').catch(() => {});
-  });
-}
-</script>
-</body></html>`);
+  w.document.write(`<!DOCTYPE html><html><head><title>MedOps Weekly Report</title><style>body{font-family:monospace;background:#fff;color:#111;padding:30px;max-width:600px;margin:auto}h1{font-size:18px;border-bottom:2px solid #e8a020;padding-bottom:8px;color:#e8a020}h2{font-size:12px;letter-spacing:2px;color:#666;margin:20px 0 8px}table{width:100%;border-collapse:collapse;font-size:11px}td,th{border:1px solid #ddd;padding:6px 8px;text-align:left}th{background:#f5f5f5}.stat{display:inline-block;background:#f9f9f9;border:1px solid #ddd;border-radius:4px;padding:8px 16px;margin:4px;text-align:center}.sn{font-size:22px;font-weight:bold;color:#e8a020}.sl{font-size:10px;color:#666;display:block}@media print{button{display:none}}</style></head><body><h1>MEDOPS COMMAND — WEEKLY REPORT</h1><p style="font-size:10px;color:#666">${new Date().toDateString()} · v3.2 · ${S.daysLogged} days logged</p><div>${['AVG FATIGUE:'+avgF,'AVG ACCURACY:'+avgA+'%','TOTAL BLOCKS:'+totB,'AVG HYDRATION:'+Math.round(avgH/100)/10+'L'].map(x=>`<span class="stat"><span class="sn">${x.split(':')[1]}</span><span class="sl">${x.split(':')[0]}</span></span>`).join('')}</div><h2>SESSION LOG</h2><table><tr><th>DAY</th><th>FATIGUE</th><th>ACCURACY</th><th>BLOCKS</th><th>HYDRATION</th></tr>${ss.map(x=>`<tr><td>${x.d}</td><td>${x.f}</td><td>${x.acc}%</td><td>${x.b}</td><td>${((x.h||0)/1000).toFixed(1)}L</td></tr>`).join('')}</table><h2>BAYESIAN</h2><p style="font-size:11px">Block: <b>${S.blockDur}min</b> · Streak: <b>${S.streak}d</b> · Adapt: <b>${S.smartAdapt?'ON':'OFF'}</b>${S.lastBayes?` · Last update: ${new Date(S.lastBayes.ts).toLocaleDateString()} (${S.lastBayes.prev}→${S.lastBayes.next}min)`:''}</p><br><button onclick="window.print()">🖨 PRINT / SAVE PDF</button></body></html>`);
   w.document.close();
 }
 function dlArchive(){
@@ -869,6 +862,13 @@ hdr();
 setInterval(clockTick,1000);clockTick();
 setInterval(checkRollover,60000);
 setTimeout(()=>{const h=document.getElementById('sh');if(h)h.remove();},5000);
+</script>
+<script>
+if('serviceWorker' in navigator){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('./sw.js').catch(()=>{});
+  });
+}
 </script>
 </body>
 </html>
